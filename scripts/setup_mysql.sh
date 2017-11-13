@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# usermod -d /var/lib/mysql/ mysql
-#echo "CREATE USER 'grafana' IDENTIFIED BY 'grafana'" | mysql --default-character-set=utf8
-#echo "GRANT ALL PRIVILEGES ON *.* TO 'grafana'@'%' WITH GRANT OPTION; FLUSH PRIVILEGES" | mysql --default-character-set=utf8
+chown -R mysql:mysql /var/lib/mysql /usr/sbin/mysqld
+
+#ln -s /var/lib/mysql/mysql.sock /tmp/mysql.sock
 
 echo "=> Starting MySQL ..."
 /etc/init.d/mysql start
