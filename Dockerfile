@@ -1,13 +1,13 @@
 FROM ubuntu:16.04
-MAINTAINER Samuele Bistoletti <samuele.bistoletti@gmail.com>
+MAINTAINER wangding <wangding85@gmail.com>
 
 ENV DEBIAN_FRONTEND noninteractive
 ENV LANG C.UTF-8
 
 # Default versions
-ENV TELEGRAF_VERSION 1.4.3-1
-ENV INFLUXDB_VERSION 1.3.7
-ENV GRAFANA_VERSION  4.6.1
+ENV INFLUXDB_VERSION 1.4.2
+ENV CHRONOGRAF_VERSION 1.4.0.1
+ENV GRAFANA_VERSION  4.6.3
 
 # Database Defaults
 ENV INFLUXDB_GRAFANA_DB datasource
@@ -18,10 +18,14 @@ ENV MYSQL_GRAFANA_USER grafana
 ENV MYSQL_GRAFANA_PW grafana
 
 # Fix bad proxy issue
-COPY system/99fixbadproxy /etc/apt/apt.conf.d/99fixbadproxy
+ADD system/99fixbadproxy /etc/apt/apt.conf.d/99fixbadproxy
 
 # Clear previous sources
 RUN rm /var/lib/apt/lists/* -vf
+
+# Replace aliyun source
+RUN mv /etc/apt/sources.list /etc/apt/sources.list.bak
+ADD system/sources.list  /etc/apt/
 
 # Base dependencies
 RUN apt-get -y update && \
@@ -35,16 +39,17 @@ RUN apt-get -y update && \
   libfontconfig \
   mysql-client \
   mysql-server \
-  nano \
+  vim \
   net-tools \
   openssh-server \
   supervisor \
   wget && \
- curl -sL https://deb.nodesource.com/setup_7.x | bash - && \
- apt-get install -y nodejs
+ curl -sL https://deb.nodesource.com/setup_7.x | bash - 
 
-# Configure Supervisord, SSH and base env
-COPY supervisord/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+RUN mv /etc/apt/sources.list.d/nodesource.list /etc/apt/sources.list.d/nodesource.list.bak
+ADD system/nodesource.list  /etc/apt/sources.list.d/nodesource.list
+
+RUN apt-get install -y nodejs
 
 WORKDIR /root
 
@@ -56,39 +61,49 @@ RUN mkdir -p /var/log/supervisor && \
     rm -rf .profile && \
     mkdir .ssh
 
-COPY ssh/id_rsa .ssh/id_rsa
-COPY bash/profile .profile
-
-# Configure MySql
-COPY scripts/setup_mysql.sh /tmp/setup_mysql.sh
-
-RUN /tmp/setup_mysql.sh
+# Configure SSH and base env
+ADD ssh/id_rsa .ssh/id_rsa
+ADD bash/profile .profile
 
 # Install InfluxDB
 RUN wget https://dl.influxdata.com/influxdb/releases/influxdb_${INFLUXDB_VERSION}_amd64.deb && \
 	dpkg -i influxdb_${INFLUXDB_VERSION}_amd64.deb && rm influxdb_${INFLUXDB_VERSION}_amd64.deb
 
 # Configure InfluxDB
-COPY influxdb/influxdb.conf /etc/influxdb/influxdb.conf
-COPY influxdb/init.sh /etc/init.d/influxdb
+ADD influxdb/influxdb.toml /etc/influxdb/influxdb.toml
 
-# Install Telegraf
-RUN wget https://dl.influxdata.com/telegraf/releases/telegraf_${TELEGRAF_VERSION}_amd64.deb && \
-	dpkg -i telegraf_${TELEGRAF_VERSION}_amd64.deb && rm telegraf_${TELEGRAF_VERSION}_amd64.deb
-
-# Configure Telegraf
-COPY telegraf/telegraf.conf /etc/telegraf/telegraf.conf
-COPY telegraf/init.sh /etc/init.d/telegraf
+# Install Chronograf
+RUN wget https://dl.influxdata.com/chronograf/releases/chronograf_${CHRONOGRAF_VERSION}_amd64.deb \
+  && dpkg -i chronograf_${CHRONOGRAF_VERSION}_amd64.deb && rm chronograf_${CHRONOGRAF_VERSION}_amd64.deb
 
 # Install Grafana
 RUN wget https://s3-us-west-2.amazonaws.com/grafana-releases/release/grafana_${GRAFANA_VERSION}_amd64.deb && \
 	dpkg -i grafana_${GRAFANA_VERSION}_amd64.deb && rm grafana_${GRAFANA_VERSION}_amd64.deb
 
 # Configure Grafana
-COPY grafana/grafana.ini /etc/grafana/grafana.ini
+ADD grafana/grafana.ini /etc/grafana/grafana.ini
+
+RUN mkdir -p /data/chronograf && chown -R chronograf:chronograf /data/chronograf && chmod 777 /data/chronograf
+
+# Configure Supervisord
+ADD supervisord/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# Configure MySql
+ADD scripts/start.sh /root/
 
 # Cleanup
 RUN apt-get clean && \
  rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-CMD ["/usr/bin/supervisord"]
+VOLUME ["/data", "/var/lib/mysql"]
+
+# SSH
+EXPOSE 22
+# chronograf
+EXPOSE 10000
+# influxDB
+EXPOSE 8086
+# grafana
+EXPOSE 3003
+
+CMD ["/bin/bash", "/root/start.sh"]
